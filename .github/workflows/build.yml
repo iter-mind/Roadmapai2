@@ -19,15 +19,17 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        # We explicitly enter the SkilioApp folder to run the gradlew script
+        run: |
+          cd SkilioApp
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SkilioApp-debug
+          # This pattern finds the APK regardless of the build flavor
           path: "**/app-debug.apk"
           
