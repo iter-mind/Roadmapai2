@@ -19,11 +19,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      # This action automatically sets up a clean, working Gradle environment
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
       - name: Build Debug APK
         run: |
           cd SkilioApp
-          mkdir -p gradle/wrapper
-          curl -L -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.2/gradle/wrapper/gradle-wrapper.jar
           chmod +x gradlew
           ./gradlew assembleDebug
 
