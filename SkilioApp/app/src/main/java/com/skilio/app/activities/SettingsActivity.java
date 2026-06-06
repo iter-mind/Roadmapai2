@@ -84,7 +84,7 @@ public class SettingsActivity extends AppCompatActivity {
                     okhttp3.RequestBody requestBody = okhttp3.RequestBody.create(
                         body.toString(), okhttp3.MediaType.parse("application/json"));
                     okhttp3.Request request = new okhttp3.Request.Builder()
-                        .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + key)
+                        .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" + key)
                         .post(requestBody)
                         .build();
                     okhttp3.Response response = client.newCall(request).execute();
