@@ -7,19 +7,18 @@ import okhttp3.*;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 public class GeminiService {
 
-    private static final String MODEL = "gemini-2.0-flash";
+    private static final String MODEL = "gemini-3-flash-preview";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
     private static final String ROADMAP_SYSTEM_PROMPT =
-        "You are an expert learning curriculum designer. Given a topic, create a step-by-step learning roadmap.\n\n" +
-        "Return a JSON object with this EXACT structure (no markdown, no extra text):\n" +
+        "You are an expert learning curriculum designer. Given a topic, create a step-by-step learning roadmap STRUCTURE only.\n\n" +
+        "Return a JSON object with this exact structure:\n" +
         "{\n" +
         "  \"title\": \"Title of the learning path\",\n" +
         "  \"subtitle\": \"Brief description\",\n" +
@@ -29,26 +28,28 @@ public class GeminiService {
         "      \"title\": \"Step title\",\n" +
         "      \"description\": \"2-3 sentence description of what to learn\",\n" +
         "      \"resources\": [\n" +
-        "        {\"title\": \"Resource name\", \"url\": \"https://...\", \"type\": \"video|website|pdf|book|tool\"}\n" +
+        "        {\"title\": \"Resource name\", \"url\": \"https://...\", \"type\": \"video|website|pdf|book|tool|other\"}\n" +
         "      ]\n" +
         "    }\n" +
         "  ]\n" +
         "}\n\n" +
         "Guidelines:\n" +
-        "- Create 7-12 steps from beginner to advanced\n" +
-        "- Each step should have 2-4 real working resource links\n" +
-        "- For YouTube videos, use: https://www.youtube.com/results?search_query=KEYWORDS\n" +
-        "IMPORTANT: Return ONLY raw JSON. No markdown fences. No extra text.";
+        "- Create 7-12 steps for a comprehensive roadmap\n" +
+        "- Each step should have 2-4 real, working resource links\n" +
+        "- For YouTube videos, use: https://www.youtube.com/results?search_query=TOPIC+KEYWORDS\n" +
+        "- Order steps from beginner to advanced\n" +
+        "IMPORTANT: Return ONLY the JSON object, no markdown fences, no extra text.";
 
     private static final String LESSON_SYSTEM_PROMPT =
-        "You are an expert educator. Generate detailed lesson content in markdown format for the given step.\n\n" +
+        "You are an expert educator. Generate detailed lesson content in markdown format for the given step of a learning roadmap.\n\n" +
         "Include:\n" +
-        "- Clear explanations\n" +
+        "- Clear explanations of concepts\n" +
         "- Code examples where relevant\n" +
         "- Practice exercises\n" +
         "- Key takeaways\n\n" +
-        "Return ONLY this JSON (no markdown fences, no extra text):\n" +
-        "{\"content\": \"...markdown content here...\"}";
+        "Return ONLY the lesson content as a markdown string inside a JSON object:\n" +
+        "{\"content\": \"...markdown content here...\"}\n\n" +
+        "IMPORTANT: Return ONLY valid JSON, no markdown fences, no extra text.";
 
     private OkHttpClient client;
 
@@ -66,8 +67,8 @@ public class GeminiService {
     }
 
     public void generateRoadmap(String topic, String apiKey, Callback<Roadmap> callback) {
-        String prompt = ROADMAP_SYSTEM_PROMPT + "\n\nTopic: " + topic;
-        callGemini(apiKey, prompt, new Callback<String>() {
+        String prompt = "Topic: " + topic;
+        callGemini(apiKey, ROADMAP_SYSTEM_PROMPT, prompt, new Callback<String>() {
             @Override
             public void onSuccess(String result) {
                 try {
@@ -85,11 +86,10 @@ public class GeminiService {
     }
 
     public void generateLesson(RoadmapStep step, String roadmapTitle, String apiKey, Callback<String> callback) {
-        String prompt = LESSON_SYSTEM_PROMPT +
-            "\n\nRoadmap: \"" + roadmapTitle + "\"" +
-            "\nStep " + step.getStepNumber() + ": \"" + step.getTitle() + "\"" +
-            "\nDescription: " + step.getDescription();
-        callGemini(apiKey, prompt, new Callback<String>() {
+        String prompt = "Roadmap: \"" + roadmapTitle + "\"\n" +
+            "Step " + step.getStepNumber() + ": \"" + step.getTitle() + "\"\n" +
+            "Description: " + step.getDescription();
+        callGemini(apiKey, LESSON_SYSTEM_PROMPT, prompt, new Callback<String>() {
             @Override
             public void onSuccess(String result) {
                 try {
@@ -97,7 +97,6 @@ public class GeminiService {
                     JSONObject obj = new JSONObject(cleaned);
                     callback.onSuccess(obj.optString("content", result));
                 } catch (Exception e) {
-                    // If JSON parsing fails, return raw content
                     callback.onSuccess(result);
                 }
             }
@@ -108,7 +107,7 @@ public class GeminiService {
         });
     }
 
-    private void callGemini(String apiKey, String prompt, Callback<String> callback) {
+    private void callGemini(String apiKey, String systemPrompt, String prompt, Callback<String> callback) {
         new Thread(() -> {
             try {
                 JSONObject body = new JSONObject();
@@ -116,7 +115,7 @@ public class GeminiService {
                 JSONObject content = new JSONObject();
                 JSONArray parts = new JSONArray();
                 JSONObject part = new JSONObject();
-                part.put("text", prompt);
+                part.put("text", systemPrompt + "\n\n" + prompt);
                 parts.put(part);
                 content.put("role", "user");
                 content.put("parts", parts);
@@ -125,7 +124,8 @@ public class GeminiService {
 
                 JSONObject genConfig = new JSONObject();
                 genConfig.put("temperature", 0.7);
-                genConfig.put("maxOutputTokens", 8192);
+                genConfig.put("maxOutputTokens", 65536);
+                genConfig.put("responseMimeType", "application/json");
                 body.put("generationConfig", genConfig);
 
                 String url = BASE_URL + MODEL + ":generateContent?key=" + apiKey;
@@ -164,23 +164,19 @@ public class GeminiService {
 
     private String cleanJson(String raw) {
         String text = raw.trim();
-        // Remove markdown fences
-        if (text.startsWith("```json")) text = text.substring(7);
-        else if (text.startsWith("```")) text = text.substring(3);
-        if (text.endsWith("```")) text = text.substring(0, text.length() - 3);
+        text = text.replaceAll("```(?:json)?\\s*([\\s\\S]*?)```", "$1");
+        text = text.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+        text = text.replaceAll(",\\s*([}\\]])", "$1");
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start != -1 && end != -1 && end > start) {
+            text = text.substring(start, end + 1);
+        }
         return text.trim();
     }
 
     private Roadmap parseRoadmap(String raw, String topic) throws JSONException {
         String cleaned = cleanJson(raw);
-
-        // Try to extract JSON object
-        int start = cleaned.indexOf('{');
-        int end = cleaned.lastIndexOf('}');
-        if (start != -1 && end != -1 && end > start) {
-            cleaned = cleaned.substring(start, end + 1);
-        }
-
         JSONObject parsed = new JSONObject(cleaned);
         Roadmap roadmap = new Roadmap();
         roadmap.setId(UUID.randomUUID().toString());
